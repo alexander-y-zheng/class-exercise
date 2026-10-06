@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
-from class8_data_loader import load_netflix
-from class8_data_validator import require_columns
+from class8_src import load_netflix, require_columns
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,7 +23,7 @@ def main():
         exit(1)
 
     # Log an INFO
-    logger.info("Data loaded and validated successfully.")
+    logger.info("Pipeline completed")
 
     # Log an INFO about the number of rows and columns in the DataFrame.
     logger.info("Data contains %d rows and %d columns.", df.shape[0], df.shape[1])

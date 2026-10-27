@@ -2,13 +2,15 @@
 
 import logging
 from fastapi import FastAPI, Query, UploadFile, File, HTTPException
-from src import MovieInput, MovieResponse, CSVInfo, DataStorage
+from src import MovieInput, MovieResponse, CSVInfo, DataStorage, ProcessConfig
+from middleware import log_requests
 from pathlib import Path
 import pandas as pd
 import io
 
 app = FastAPI(title="Movie API")
 storage = DataStorage()
+app.middleware("http")(log_requests)
 
 
 @app.get("/health")
@@ -94,14 +96,13 @@ def demo_lookup_movie(movie_id: int):
 
     return movie
 
-from pathlib import Path
-
 @app.post("/inspect-csv", response_model=CSVInfo)
 async def inspect_csv(file: UploadFile = File(...)):
     # 2: check the filename extension using pathlib.
     # Reject non-CSV files with status 400 and log a WARNING.
-    if Path(file.filename).suffix.lower() != ".csv":
-        logger.warning("Non-CSV file uploaded: %s", file.filename)
+    filename = file.filename
+    if filename is None or Path(filename).suffix.lower() != ".csv":
+        logger.warning("Non-CSV file uploaded: %s", filename)
         raise HTTPException( status_code=400, detail="Only CSV files are allowed")
 
     # 3: await the file contents and parse the CSV.
@@ -118,10 +119,10 @@ async def inspect_csv(file: UploadFile = File(...)):
     # 4: save the DataFrame with storage.save_data().
     # Log the dataset ID, filename at INFO.
     # Return a CSVInfo object with the ID, filename, shape, and column names.
-    dataset_id = storage.save_data(df, file.filename)
-    logger.info("Saved dataset: id=%d, filename=%s", dataset_id, file.filename)
+    dataset_id = storage.save_data(df, filename)
+    logger.info("Saved dataset: id=%d, filename=%s", dataset_id, filename)
     return CSVInfo(
-        filename=file.filename,
+        filename=filename,
         rows=df.shape[0],
         columns=df.shape[1],
         column_names=list(df.columns),
@@ -145,3 +146,16 @@ def get_dataset_shape(dataset_id: int):
         "columns": data.shape[1]
     }
     
+@app.post("/demo/process-config")
+def demo_process_config(config: ProcessConfig):
+    df = pd.DataFrame({"title": ["Movie A", "Movie A", "Movie B", None]})
+    settings = config.model_dump()
+
+    if settings["processing"]["remove_duplicates"]:
+        df = df.drop_duplicates()
+
+    if settings["processing"]["drop_missing"]:
+        df = df.dropna()
+        
+    return {"rows": len(df)}
+

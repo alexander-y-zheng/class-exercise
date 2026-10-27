@@ -1,10 +1,14 @@
 #main.py
 
 import logging
-from fastapi import FastAPI, Query
-from src import MovieInput, MovieResponse
+from fastapi import FastAPI, Query, UploadFile, File, HTTPException
+from src import MovieInput, MovieResponse, CSVInfo, DataStorage
+from pathlib import Path
+import pandas as pd
+import io
 
 app = FastAPI(title="Movie API")
+storage = DataStorage()
 
 
 @app.get("/health")
@@ -72,3 +76,72 @@ def add_movie(movie: MovieInput):
     movies[final_id] = record
     logger.info("Added movie: id=%d", final_id)
     return record
+
+@app.post("/demo/inspect-csv")
+async def demo_inspect_csv(file: UploadFile = File(...)):
+    # ... in File(...) means the upload is required.
+    contents = await file.read() # reads as bytes e.g. b"title,year\nMovie A,2020\n"
+    return {"filename": file.filename,"size_bytes": len(contents)}
+
+
+@app.get("/demo/movie-lookup/{movie_id}", response_model=MovieResponse)
+def demo_lookup_movie(movie_id: int):
+    movie = movies.get(movie_id)
+
+    if movie is None:
+        logger.warning(f"Movie not found: {movie_id}")
+        raise HTTPException( status_code=404, detail="Movie not found")
+
+    return movie
+
+from pathlib import Path
+
+@app.post("/inspect-csv", response_model=CSVInfo)
+async def inspect_csv(file: UploadFile = File(...)):
+    # 2: check the filename extension using pathlib.
+    # Reject non-CSV files with status 400 and log a WARNING.
+    if Path(file.filename).suffix.lower() != ".csv":
+        logger.warning("Non-CSV file uploaded: %s", file.filename)
+        raise HTTPException( status_code=400, detail="Only CSV files are allowed")
+
+    # 3: await the file contents and parse the CSV.
+    # Catch expected parsing/decoding errors (e.g. EmptyDataError,ParserError, UnicodeDecodeError) and raise HTTPException
+    # with status_code=400.
+    contents = await file.read()
+    try:
+        df = pd.read_csv(io.BytesIO(contents))
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as error:
+        logger.warning(f"Cannot read CSV: {error}")
+        raise HTTPException(status_code=400, detail="Cannot read the uploaded CSV")
+
+
+    # 4: save the DataFrame with storage.save_data().
+    # Log the dataset ID, filename at INFO.
+    # Return a CSVInfo object with the ID, filename, shape, and column names.
+    dataset_id = storage.save_data(df, file.filename)
+    logger.info("Saved dataset: id=%d, filename=%s", dataset_id, file.filename)
+    return CSVInfo(
+        filename=file.filename,
+        rows=df.shape[0],
+        columns=df.shape[1],
+        column_names=list(df.columns),
+        dataset_id=dataset_id
+    )
+
+@app.get("/datasets/{dataset_id}/shape")
+def get_dataset_shape(dataset_id: int):
+    # 5: get the DataFrame using storage.get_data().
+    # If it is missing, log a WARNING and raise HTTPException with status 404.
+    # Otherwise, log successful retrieval at INFO.
+    # Return a dictionary with dataset_id, rows, and columns.
+    data = storage.get_data(dataset_id)
+    if data is None:
+        logger.warning("Dataset not found: %d", dataset_id)
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    logger.info("Retrieved dataset: id=%d", dataset_id)
+    return {
+        "dataset_id": dataset_id,
+        "rows": data.shape[0],
+        "columns": data.shape[1]
+    }
+    

@@ -20,3 +20,5 @@ venv/
 .env
 
 !requirements.txt
+
+class16_18/data/

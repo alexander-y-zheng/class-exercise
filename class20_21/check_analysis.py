@@ -29,6 +29,14 @@ def summarize_years(df, window = 3):
     ].round(2)
     return summary
 
+def filter_movies(df, min_rating):
+    # Keep rows where rating >= min_rating.
+    filtered = df[df["rating"] >= min_rating]
+    
+    # Return a DataFrame containing title, release_year, rating, and genre.
+    # Preserve the original row order.
+    return filtered[["title", "release_year", "rating", "genre"]]
+
 def main():
     df = pd.read_csv(Path("data") / "class20_movies.csv")
     print(summarize_genres(df).to_string(index=False))
